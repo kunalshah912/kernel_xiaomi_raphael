@@ -8476,7 +8476,7 @@ QDF_STATUS hdd_parse_config_ini(struct hdd_context *hdd_ctx)
 	/* cfgIniTable is static to avoid excess stack usage */
 	static struct hdd_cfg_entry cfgIniTable[MAX_CFG_INI_ITEMS];
 	QDF_STATUS qdf_status = QDF_STATUS_SUCCESS;
-	#include "wlan_hdd_cfg.h"
+	#include "wlan_cfg_ini.h"
 
 	memset(cfgIniTable, 0, sizeof(cfgIniTable));
 
@@ -8485,7 +8485,8 @@ QDF_STATUS hdd_parse_config_ini(struct hdd_context *hdd_ctx)
 
 	if (NULL == buffer) {
 		hdd_err("qdf_mem_malloc failure");
-		return QDF_STATUS_E_NOMEM;
+		qdf_status = QDF_STATUS_E_NOMEM;
+		goto config_exit;
 	}
 	pTemp = buffer;
 
@@ -8538,6 +8539,7 @@ QDF_STATUS hdd_parse_config_ini(struct hdd_context *hdd_ctx)
 	if (QDF_GLOBAL_MONITOR_MODE == cds_get_conparam())
 		hdd_override_all_ps(hdd_ctx);
 
+config_exit:
 	qdf_mem_free(pTemp);
 	return qdf_status;
 }
