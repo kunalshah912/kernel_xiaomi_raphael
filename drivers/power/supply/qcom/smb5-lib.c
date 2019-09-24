@@ -4935,17 +4935,19 @@ static int smblib_handle_usb_current(struct smb_charger *chg,
 				 * based of Rp.
 				 */
 				typec_mode = smblib_get_prop_typec_mode(chg);
-				rp_ua = get_rp_based_dcp_current(chg,
+				if (typec_rp_med_high(chg, typec_mode)) {
+					rp_ua = get_rp_based_dcp_current(chg,
 								typec_mode);
 				if (rp_ua == DCP_CURRENT_UA)
 					rp_ua = FLOAT_CHARGER_UA;
-				rc = vote(chg->usb_icl_votable,
+					rc = vote(chg->usb_icl_votable,
 						SW_ICL_MAX_VOTER, true, rp_ua);
-				if (rc < 0)
-					return rc;
+					if (rc < 0)
+						return rc;
+				}
 			} else {
 				rc = vote(chg->usb_icl_votable,
-					SW_ICL_MAX_VOTER, true, DCP_CURRENT_UA);
+					SW_ICL_MAX_VOTER, true, USBIN_500MA);
 				if (rc < 0)
 					return rc;
 			}
@@ -5610,8 +5612,10 @@ int smblib_get_charge_current(struct smb_charger *chg,
 			break;
 		case DCP_CHARGER_BIT:
 		case OCP_CHARGER_BIT:
-		case FLOAT_CHARGER_BIT:
 			current_ua = DCP_CURRENT_UA;
+			break;
+		case FLOAT_CHARGER_BIT:
+			current_ua = USBIN_500MA;
 			break;
 		default:
 			current_ua = 0;
@@ -5630,8 +5634,10 @@ int smblib_get_charge_current(struct smb_charger *chg,
 			break;
 		case DCP_CHARGER_BIT:
 		case OCP_CHARGER_BIT:
-		case FLOAT_CHARGER_BIT:
 			current_ua = chg->default_icl_ua;
+			break;
+		case FLOAT_CHARGER_BIT:
+			current_ua = USBIN_500MA;
 			break;
 		default:
 			current_ua = 0;
@@ -6639,12 +6645,12 @@ static void update_sw_icl_max(struct smb_charger *chg, int pst)
 							USB_PSY_VOTER))
 			vote(chg->usb_icl_votable, USB_PSY_VOTER, false, 0);
 		/*
-	 	* limit ICL to 100mA, the USB driver will enumerate to check
+	 	* limit ICL to 500mA, the USB driver will enumerate to check
 	 	* if this is a SDP and appropriately set the current
 	 	*/
 		if (!chg->recheck_charger)
 			vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
-						SDP_100_MA);
+						USBIN_500MA);
 		else
 			vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
 						FLOAT_CHARGER_UA);
