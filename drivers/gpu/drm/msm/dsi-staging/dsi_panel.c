@@ -810,8 +810,7 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 		/* map UI brightness into driver backlight level
 		*    y = kx+b;
 		*/
-		bl_temp = (panel->bl_config.bl_max_level - panel->bl_config.bl_min_level)*bl_lvl/panel->bl_config.brightness_max_level
-					+ panel->bl_config.bl_min_level;
+		bl_temp = panel->bl_config.bl_max_level;
 	} else
 		bl_temp = bl_lvl;
 
