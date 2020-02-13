@@ -173,5 +173,6 @@ static const char wlan_cfg[] = {
 	"gActiveUcBpfMode=1\n"
 	"gActiveMcBcBpfMode=1\n"
 	"ignore_fw_reg_offload_ind=0\n"
+	"sae_enabled=0\n"
 	"END\n"
 };

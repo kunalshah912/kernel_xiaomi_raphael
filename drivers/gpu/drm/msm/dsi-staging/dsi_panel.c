@@ -87,10 +87,9 @@ static struct dsi_panel *g_panel;
 int dsi_display_read_panel(struct dsi_panel *panel, struct dsi_read_config *read_config);
 static int string_merge_into_buf(const char *str, int len, char *buf);
 
+static struct dsi_read_config read_reg;
 
 #if DSI_READ_WRITE_PANEL_DEBUG
-static int string_merge_into_buf(const char *str, int len, char *buf);
-static struct dsi_read_config read_reg;
 static struct proc_dir_entry *mipi_proc_entry = NULL;
 #define MIPI_PROC_NAME "mipi_reg"
 #endif
@@ -666,7 +665,6 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 	u32 bl_lvl)
 {
 	int rc = 0;
-	u32 bl_temp = 0;
 	struct mipi_dsi_device *dsi;
 
 	if (!panel || (bl_lvl > 0xffff)) {
@@ -674,27 +672,15 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 		return -EINVAL;
 	}
 
-	if (panel->bl_config.bl_remap_flag && panel->bl_config.brightness_max_level
-		&& panel->bl_config.bl_max_level) {
-		/* map UI brightness into driver backlight level
-		*    y = kx+b;
-		*/
-		bl_temp = (panel->bl_config.bl_max_level - panel->bl_config.bl_min_level)*bl_lvl/panel->bl_config.brightness_max_level
-					+ panel->bl_config.bl_min_level;
-		pr_debug("bl_temp %d\n", bl_temp);
-	} else
-		bl_temp = bl_lvl;
-
-	pr_debug("bl_temp %d\n", bl_temp);
 	dsi = &panel->mipi_device;
 
 	if (panel->bl_config.dcs_type_ss)
-		rc = mipi_dsi_dcs_set_display_brightness_ss(dsi, bl_temp);
+		rc = mipi_dsi_dcs_set_display_brightness_ss(dsi, bl_lvl);
 	else
-		rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_temp);
+		rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_lvl);
 
 	if (rc < 0)
-		pr_err("failed to update dcs backlight:%d\n", bl_temp);
+		pr_err("failed to update dcs backlight:%d\n", bl_lvl);
 
 	return rc;
 }
@@ -812,6 +798,7 @@ int dsi_panel_enable_doze_backlight(struct dsi_panel *panel, u32 bl_lvl)
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 {
 	int rc = 0;
+	u32 bl_temp = 0;
 	struct dsi_backlight_config *bl = &panel->bl_config;
 
 	if (panel->host_config.ext_bridge_num)
@@ -822,15 +809,24 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 	if (0 == bl_lvl)
 		dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_DIMMINGOFF);
 
+	if (panel->bl_config.bl_remap_flag && panel->bl_config.brightness_max_level
+		&& panel->bl_config.bl_max_level) {
+		/* map UI brightness into driver backlight level
+		*    y = kx+b;
+		*/
+		bl_temp = panel->bl_config.bl_max_level;
+	} else
+		bl_temp = bl_lvl;
+
 	switch (bl->type) {
 	case DSI_BACKLIGHT_WLED:
-		rc = backlight_device_set_brightness(bl->raw_bd, bl_lvl);
+		rc = backlight_device_set_brightness(bl->raw_bd, bl_temp);
 		break;
 	case DSI_BACKLIGHT_DCS:
 		if (panel->fod_backlight_flag) {
 			pr_debug("fod_backlight_flag set\n");
 		} else {
-			rc = dsi_panel_update_backlight(panel, bl_lvl);
+			rc = dsi_panel_update_backlight(panel, bl_temp);
 		}
 		break;
 	case DSI_BACKLIGHT_EXTERNAL:
@@ -3780,7 +3776,7 @@ void dsi_panel_put(struct dsi_panel *panel)
 	kfree(panel);
 }
 
-#if DSI_READ_WRITE_PANEL_DEBUG
+
 static int dsi_display_write_panel(struct dsi_panel *panel,
 				struct dsi_panel_cmd_set *cmd_sets)
 {
@@ -3828,6 +3824,7 @@ static int dsi_display_write_panel(struct dsi_panel *panel,
 error:
 	return rc;
 }
+
 
 ssize_t mipi_reg_write(char *buf, size_t count)
 {
@@ -3954,113 +3951,36 @@ ssize_t mipi_reg_read(char *buf)
 	return count;
 }
 
-static ssize_t mipi_reg_procfs_write (struct file *file, const char __user *buf,
+#if DSI_READ_WRITE_PANEL_DEBUG
+static ssize_t mipi_reg_procfs_write(struct file *file, const char __user *buf,
 	size_t count, loff_t *offp)
 {
-	struct dsi_panel_cmd_set cmd_sets = {0, 0, 0, 0, NULL};
-	struct seq_file *seq = (struct seq_file *)file->private_data;
-	struct dsi_panel *panel = (struct dsi_panel *)seq->private;
-	int retval = 0, dlen = 0;
-	u32 packet_count = 0;
-	u8 *tmp = NULL, *p_tmp = NULL, *data = NULL;
-	u8 pbuf[2];
+	int retval = 0;
+	char *input = NULL;
 
-	mutex_lock(&panel->panel_lock);
-
-	if (!panel || !panel->panel_initialized) {
-		pr_err("[LCD] panel not ready!\n");
-		mutex_unlock(&panel->panel_lock);
-		return -EAGAIN;
-	}
-
-	tmp = kzalloc(count, GFP_KERNEL);
-	if (!tmp) {
-		mutex_unlock(&panel->panel_lock);
+	input = kmalloc(count, GFP_KERNEL);
+	if (!input) {
 		return -ENOMEM;
 	}
-	if (copy_from_user(tmp, buf, count)) {
+	if (copy_from_user(input, buf, count)) {
+		pr_err("copy from user failed\n");
 		retval = -EFAULT;
-		goto exit_free1;
+		goto end;
 	}
-	tmp[count-1] = '\0';
+	input[count-1] = '\0';
+	pr_debug("copy_from_user input: %s\n", input);
 
-	pr_debug("%s: copy_from_user buf: %s\n", __func__, tmp);
-
-	p_tmp = tmp;
-	memcpy(pbuf, p_tmp, 2);
-	read_reg.enabled = simple_strtol(pbuf, NULL, 10);
-	p_tmp = p_tmp + 3;
-	memcpy(pbuf, p_tmp, 2);
-	read_reg.cmds_rlen = simple_strtol(pbuf, NULL, 10);
-	p_tmp = p_tmp + 3;
-
-	data = kzalloc(count - 6, GFP_KERNEL);
-	if (!data) {
-		retval = -ENOMEM;
-		goto exit_free1;
-	}
-	data[count-6-1] = '\0';
-	dlen = string_merge_into_buf(p_tmp, count - 6, data);
-	if (dlen <= 0)
-		goto exit_free2;
-	retval = dsi_panel_get_cmd_pkt_count(data, dlen, &packet_count);
-	if (!packet_count) {
-		pr_err("%s: get pkt count failed!\n", __func__);
-		goto exit_free2;
-	}
-	if (cmd_sets.cmds) {
-		kfree(cmd_sets.cmds);
-		cmd_sets.cmds = NULL;
-	}
-
-
-	retval = dsi_panel_alloc_cmd_packets(&cmd_sets, packet_count);
-	if (retval) {
-		pr_err("%s: failed to allocate cmd packets, ret=%d\n", __func__, retval);
-		goto exit_free2;
-	}
-
-	retval = dsi_panel_create_cmd_packets(data, dlen, packet_count,
-						  cmd_sets.cmds);
-	if (retval) {
-		pr_err("%s: failed to create cmd packets, ret=%d\n", __func__, retval);
-		goto exit_free3;
-	}
-
-	if (read_reg.enabled) {
-		read_reg.read_cmd = cmd_sets;
-		retval = dsi_display_read_panel(panel, &read_reg);
-		if (retval <= 0) {
-			pr_err("%s: [%s]failed to read cmds, rc=%d\n", __func__, panel->name, retval);
-			goto exit_free4;
-		}
-	} else {
-		read_reg.read_cmd = cmd_sets;
-		retval = dsi_display_write_panel(panel, &cmd_sets);
-		if (retval) {
-			pr_err("%s: [%s] failed to send cmds, rc=%d\n", __func__, panel->name, retval);
-			goto exit_free4;
-		}
-	}
-
-	pr_info("[%s]: mipi_procfs_write done!\n", panel->name);
-	retval = count;
-
-exit_free4:
-	dsi_panel_destroy_cmd_packets(&cmd_sets);
-exit_free3:
-	dsi_panel_dealloc_cmd_packets(&cmd_sets);
-exit_free2:
-	kfree(data);
-exit_free1:
-	kfree(tmp);
-	mutex_unlock(&panel->panel_lock);
+	retval = mipi_reg_write(input, count);
+end:
+	kfree(input);
 	return retval;
 }
+
 static int mipi_reg_procfs_show(struct seq_file *m, void *v)
 {
 	struct dsi_panel *panel = (struct dsi_panel *)m->private;
 	int i = 0;
+
 	mutex_lock(&panel->panel_lock);
 
 	if (!panel) {
@@ -4075,8 +3995,9 @@ static int mipi_reg_procfs_show(struct seq_file *m, void *v)
 			seq_printf(m, "0x%02x ", read_reg.rbuf[i]);
 		}
 	}
-	seq_printf(m, "\n");
+	seq_printf(m,"\n");
 	mutex_unlock(&panel->panel_lock);
+
 	return 0;
 }
 
@@ -5561,4 +5482,55 @@ int dsi_panel_post_unprepare(struct dsi_panel *panel)
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
+}
+
+ssize_t dsi_panel_disp_count_get(struct dsi_display *display, char *buf)
+{
+	int ret = -1;
+	struct timespec64 now_boot;
+	u64 record_end = 0;
+	/* struct timespec rtctime; */
+	struct dsi_panel *panel = NULL;
+
+	if (!display || !display->panel || !display->drm_dev) {
+		pr_err("invalid display/panel/drm_dev\n");
+		return -EINVAL;
+	}
+
+	if (buf == NULL) {
+		pr_err("dsi_panel_disp_count_get buffer is NULL!\n");
+		return -EINVAL;
+	}
+
+	panel = display->panel;
+	get_monotonic_boottime64(&now_boot);
+	/* getnstimeofday(&rtctime); */
+
+	ret = scnprintf(buf, PAGE_SIZE,
+		"panel_active=%llu\n"
+		"panel_kickoff_count=%llu\n"
+		"kernel_boottime=%llu\n"
+		"kernel_rtctime=%llu\n"
+		"kernel_days=%llu\n"
+		"bl_duration=%llu\n"
+		"bl_level_integral=%llu\n"
+		"bl_highlevel_duration=%llu\n"
+		"bl_lowlevel_duration=%llu\n"
+		"hbm_duration=%llu\n"
+		"hbm_times=%llu\n"
+		"record_end=%llu\n",
+		panel->panel_active,
+		panel->kickoff_count,
+		panel->boottime + now_boot.tv_sec,
+		panel->bootRTCtime,
+		panel->bootdays,
+		panel->bl_duration,
+		panel->bl_level_integral,
+		panel->bl_highlevel_duration,
+		panel->bl_lowlevel_duration,
+		panel->hbm_duration,
+		panel->hbm_times,
+		record_end);
+
+	return ret;
 }
