@@ -6457,14 +6457,12 @@ static void smblib_handle_hvdcp_3p0_auth_done(struct smb_charger *chg,
 
 	if (apsd_result->bit & QC_3P0_BIT) {
 		/* for QC3, switch to CP if present */
-		if (chg->sec_cp_present) {
-			if(!chg->qc_class_ab) {
+		if ((chg->sec_cp_present) && (!chg->qc_class_ab)) {
 				rc = smblib_select_sec_charger(chg,
 					POWER_SUPPLY_CHARGER_SEC_CP, POWER_SUPPLY_CP_HVDCP3, false);
 				if (rc < 0)
 					dev_err(chg->dev,
 					"Couldn't enable secondary chargers  rc=%d\n", rc);
-			}
 		} else {
 			if (!chg->detect_low_power_qc3_charger) {
 				vote(chg->usb_icl_votable, SW_ICL_MAX_VOTER, true,
