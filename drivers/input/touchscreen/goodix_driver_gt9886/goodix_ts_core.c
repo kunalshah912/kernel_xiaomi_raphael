@@ -761,12 +761,12 @@ static int goodix_ts_input_report(struct input_dev *dev,
 			input_report_abs(dev, ABS_MT_TOUCH_MINOR, coords->area);
 			*/
 
-			if ((core_data->event_status & 0x88) != 0x88 || !core_data->fod_status)
+			if ((core_data->event_status & 0x88) != 0x88 || !core_data->fod_enabled)
 				coords->overlapping_area = 0;
 			input_report_abs(dev, ABS_MT_WIDTH_MINOR, coords->overlapping_area);
 			input_report_abs(dev, ABS_MT_WIDTH_MAJOR, coords->overlapping_area);
 			if (!__test_and_set_bit(i, &core_data->touch_id)) {
-				ts_info("[GTP] %s report press:%d", __func__, i);
+				pr_debug("[GTP] %s report press:%d", __func__, i);
 			}
 			dev_dbg(core_data->ts_dev->dev, "[GTP] %s report:[%d](%d, %d, %d, %d)", __func__, id,
 				touch_data->coords[0].x, touch_data->coords[0].y,
@@ -781,19 +781,19 @@ static int goodix_ts_input_report(struct input_dev *dev,
 					input_report_key(dev, BTN_TOOL_FINGER, 0);
 					core_data->sleep_finger = 0;
 				}
-				ts_info("[GTP] %s report leave:%d", __func__, i);
+				pr_debug("[GTP] %s report leave:%d", __func__, i);
 			}
 		}
 	}
 
 	/*report finger*/
 	/*ts_info("get_event_now :0x%02x, pre_event : %d", get_event_now, pre_event);*/
-	if ((core_data->event_status & 0x88) == 0x88 && core_data->fod_status) {
-			input_report_key(core_data->input_dev, BTN_INFO, 1);
-			/*input_report_key(core_data->input_dev, KEY_INFO, 1);*/
-			core_data->fod_pressed = true;
-			ts_info("BTN_INFO press");
-		} else if (core_data->fod_pressed && (core_data->event_status & 0x88) != 0x88) {
+	if ((core_data->event_status & 0x88) == 0x88 && core_data->fod_enabled) {
+		input_report_key(core_data->input_dev, BTN_INFO, 1);
+		/*input_report_key(core_data->input_dev, KEY_INFO, 1);*/
+		core_data->fod_pressed = true;
+		ts_info("BTN_INFO press");
+	} else if (core_data->fod_pressed && (core_data->event_status & 0x88) != 0x88) {
 		if (unlikely(!core_data->fod_test)) {
 			input_report_key(core_data->input_dev, BTN_INFO, 0);
 			/*input_report_key(core_data->input_dev, KEY_INFO, 0);*/
@@ -1187,7 +1187,6 @@ static void goodix_switch_mode_work(struct work_struct *work)
 
 	struct goodix_ts_core *info = ms->info;
 	unsigned char value = ms->mode;
-
 #ifdef CONFIG_GOODIX_HWINFO
 	char ch[16] = { 0x0, };
 #endif
@@ -1551,11 +1550,11 @@ int goodix_ts_suspend(struct goodix_ts_core *core_data)
 
 			r = ext_module->funcs->before_suspend(core_data, ext_module);
 			if (r == EVT_CANCEL_SUSPEND) {
-				if (core_data->double_wakeup && core_data->fod_status) {
+				if (core_data->double_wakeup && (core_data->fod_enabled) {
 					atomic_set(&core_data->suspend_stat, TP_GESTURE_DBCLK_FOD);
-				} else if (core_data->double_wakeup) {
+				} else if (core_data->double_wakeup && !core_data->fod_enabled) {
 					atomic_set(&core_data->suspend_stat, TP_GESTURE_DBCLK);
-				} else if (core_data->fod_status) {
+				} else if (!core_data->double_wakeup && (core_data->fod_enabled) {
 					atomic_set(&core_data->suspend_stat, TP_GESTURE_FOD);
 				}
 				mutex_unlock(&goodix_modules.mutex);
@@ -2186,9 +2185,9 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	core_data->is_usb_exist = -1;
 	/*i2c test*/
 	r = ts_device->hw_ops->read_trans(ts_device, 0x3100, &read_val, 1);
-	if (!r)
+	if (!r) {
 		ts_info("i2c test SUCCESS");
-	else {
+	} else {
 		ts_err("i2c test FAILED");
 		goto out;
 	}
@@ -2250,11 +2249,13 @@ static int goodix_ts_probe(struct platform_device *pdev)
 		goto out;
 	}
 
+
 #ifdef CONFIG_GOODIX_HWINFO
 	core_data->dbclick_count = 0;
 #endif
 
 	/*core_data->fod_status = -1;*/
+	/*core_data->fod_enabled = false;*/
 	//wake_lock_init(&core_data->tp_wakelock, WAKE_LOCK_SUSPEND, "touch_locker");
 #ifdef CONFIG_TOUCHSCREEN_GOODIX_DEBUG_FS
 	core_data->debugfs = debugfs_create_dir("tp_debug", NULL);
