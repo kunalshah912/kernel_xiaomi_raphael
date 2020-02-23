@@ -2282,24 +2282,29 @@ static int gtp_set_cur_value(int gtp_mode, int gtp_value)
 	int i = 0;
 
 	struct goodix_ts_device *dev = goodix_core_data->ts_dev;
-/*
-	if (gtp_mode == Touch_Fod_Enable && goodix_core_data && gtp_value >= 0) {
-		ts_info("set fod status");
+	if (gtp_mode == Touch_Fod_Enable && goodix_core_data) {
 		goodix_core_data->fod_status = gtp_value;
-		goodix_core_data->gesture_enabled = goodix_core_data->double_wakeup |
-			goodix_core_data->fod_status | goodix_core_data->aod_status;
-		goodix_check_gesture_stat(!!goodix_core_data->fod_status);
+		if (goodix_core_data->fod_status == -1 || goodix_core_data->fod_status == 100) {
+			goodix_core_data->fod_enabled = false;
+			goodix_core_data->gesture_enabled = goodix_core_data->double_wakeup |
+				goodix_core_data->aod_status | goodix_core_data->fod_enabled;
+		} else {
+			goodix_core_data->fod_enabled = true;
+			goodix_core_data->gesture_enabled = goodix_core_data->double_wakeup |
+				goodix_core_data->fod_enabled | goodix_core_data->aod_status;
+		}
 		return 0;
 	}
 	if (gtp_mode == Touch_Aod_Enable && goodix_core_data && gtp_value >= 0) {
-		ts_info("set aod status");
 		goodix_core_data->aod_status = gtp_value;
-		goodix_core_data->gesture_enabled = goodix_core_data->double_wakeup |
-			goodix_core_data->fod_status | goodix_core_data->aod_status;
-		goodix_check_gesture_stat(!!goodix_core_data->aod_status);
+		if (goodix_core_data->fod_status == -1 || goodix_core_data->fod_status == 100)
+			goodix_core_data->gesture_enabled = goodix_core_data->double_wakeup | goodix_core_data->aod_status;
+		else
+			goodix_core_data->gesture_enabled = goodix_core_data->double_wakeup |
+				goodix_core_data->fod_status | goodix_core_data->aod_status;
 		return 0;
 	}
-*/
+
 	if (gtp_mode >= Touch_Mode_NUM && gtp_mode < 0) {
 		ts_err("gtp mode is error:%d", gtp_mode);
 		return -EINVAL;
@@ -2670,7 +2675,7 @@ static int goodix_ts_probe(struct platform_device *pdev)
 #endif
 
 	core_data->fod_status = -1;
-	/*core_data->fod_enabled = false;*/
+	core_data->fod_enabled = false;
 	//wake_lock_init(&core_data->tp_wakelock, WAKE_LOCK_SUSPEND, "touch_locker");
 #ifdef CONFIG_TOUCHSCREEN_GOODIX_DEBUG_FS
 	core_data->debugfs = debugfs_create_dir("tp_debug", NULL);
