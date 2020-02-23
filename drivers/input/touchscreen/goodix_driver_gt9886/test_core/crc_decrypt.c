@@ -16,8 +16,10 @@ extern "C" {
 #include <linux/string.h>
 #include <linux/firmware.h>
 #include "../goodix_ts_core.h"
-const char default_order_name[] = "goodix_gt9886_limit_f11.tporder";
-
+const char default_order_name_first[] = "goodix_gt9886_limit_f11_first.tporder";
+const char default_order_name_second[] = "goodix_gt9886_limit_f11_second.tporder";
+#define TP_MARKER_SDC 0X48
+#define TP_MARKER_VXN 0X51
 /*******************************************************************************
 * Function Name	: decrypt_reflect
 * Description	:
@@ -119,10 +121,25 @@ extern s32 read_file_decoder(PST_TP_DEV p_tp_dev, s8 **ver_date,
 
 	dev = (struct device *)p_tp_dev->p_logic_dev;
 
-	if (ts_bdata && ts_bdata->limit_name)
-		strlcpy(order_name, ts_bdata->limit_name, sizeof(order_name));
-	else
-		strlcpy(order_name, default_order_name, sizeof(order_name));
+
+	if (ts_bdata && (ts_bdata->limit_name)){
+		board_print_error("lock_info is 0x%x\n",goodix_core_data->lockdown_info[0]);
+		if (goodix_core_data->lockdown_info[0] == TP_MARKER_SDC){
+			board_print_error("touchpanel is SDC\n");
+			strlcpy(order_name, ts_bdata->limit_name, sizeof(order_name));
+		}else{
+			board_print_error("touchpanel is VXN\n");
+			strlcpy(order_name, ts_bdata->limit_name, sizeof(order_name));
+		}
+	}else{
+		if (goodix_core_data->lockdown_info[0] == TP_MARKER_SDC){
+			board_print_error("touchpanel is SDC limit file not found\n");
+			strlcpy(order_name, default_order_name_first, sizeof(order_name));
+		}else{
+			board_print_error("touchpanel is VXN limit file not found\n");
+			strlcpy(order_name, default_order_name_second, sizeof(order_name));
+		}
+	}
 	/*read content*/
 	for (i = 0; i < 2; i++) {
 		ret = request_firmware(&firmware, order_name, dev);
