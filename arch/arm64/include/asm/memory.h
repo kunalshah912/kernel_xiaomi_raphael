@@ -219,7 +219,7 @@ static inline unsigned long kaslr_offset(void)
  * pass on to access_ok(), for instance.
  */
 #define untagged_addr(addr)	\
-	((__typeof__(addr))sign_extend64((u64)(addr), 55))
+	((__typeof__(addr))sign_extend64((__force u64)(addr), 55))
 
 #ifdef CONFIG_KASAN_SW_TAGS
 #define __tag_shifted(tag)	((u64)(tag) << 56)
@@ -302,6 +302,22 @@ static inline void *phys_to_virt(phys_addr_t x)
 #define pfn_to_kaddr(pfn)	__va((pfn) << PAGE_SHIFT)
 #define virt_to_pfn(x)      __phys_to_pfn(__virt_to_phys((unsigned long)(x)))
 #define sym_to_pfn(x)	    __phys_to_pfn(__pa_symbol(x))
+
+/*
+ * With non-canonical CFI jump tables, the compiler replaces function
+ * address references with the address of the function's CFI jump
+ * table entry. This results in __pa_symbol(function) returning the
+ * physical address of the jump table entry, which can lead to address
+ * space confusion since the jump table points to the function's
+ * virtual address. Therefore, use inline assembly to ensure we are
+ * always taking the address of the actual function.
+ */
+#define __pa_function(x) ({						\
+	unsigned long addr;						\
+	asm("adrp %0, " __stringify(x) "\n\t"				\
+	    "add  %0, %0, :lo12:" __stringify(x) : "=r" (addr));	\
+	__pa_symbol(addr);						\
+})
 
 /*
  *  virt_to_page(k)	convert a _valid_ virtual address to struct page *

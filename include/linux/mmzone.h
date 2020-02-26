@@ -187,8 +187,6 @@ enum node_stat_item {
 	NR_DIRTIED,		/* page dirtyings since bootup */
 	NR_WRITTEN,		/* page writings since bootup */
 	NR_INDIRECTLY_RECLAIMABLE_BYTES, /* measured in bytes */
-	NR_ION_HEAP,
-	NR_ION_HEAP_POOL,
 	NR_GPU_HEAP,
 	NR_VM_NODE_STAT_ITEMS
 };
@@ -665,6 +663,7 @@ typedef struct pglist_data {
 	unsigned long node_spanned_pages; /* total size of physical page
 					     range, including holes */
 	int node_id;
+	atomic_t kswapd_waiters;
 	wait_queue_head_t kswapd_wait;
 	wait_queue_head_t pfmemalloc_wait;
 	struct task_struct *kswapd;	/* Protected by

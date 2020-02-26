@@ -74,7 +74,6 @@ static void record_vmstat(void)
 static void record_stat(void)
 {
 	int i;
-	bool need_vmstat = false;
 
 	if (time_is_after_jiffies(current->next_period))
 		return;
@@ -86,15 +85,12 @@ static void record_stat(void)
 	for (i = 0; i < MM_TYPE_NUM; i++) {
 		if (current->mm_event[i].count == 0)
 			continue;
-		if (i == MM_COMPACTION || i == MM_RECLAIM)
-			need_vmstat = true;
 		trace_mm_event_record(i, &current->mm_event[i]);
 		memset(&current->mm_event[i], 0,
 				sizeof(struct mm_event_task));
 	}
 
-	if (need_vmstat)
-		record_vmstat();
+	record_vmstat();
 }
 
 void mm_event_start(ktime_t *time)
@@ -110,12 +106,6 @@ void mm_event_end(enum mm_event_type event, ktime_t start)
 	current->mm_event[event].accm_lat += elapsed;
 	if (elapsed > current->mm_event[event].max_lat)
 		current->mm_event[event].max_lat = elapsed;
-	record_stat();
-}
-
-void mm_event_count(enum mm_event_type event, int count)
-{
-	current->mm_event[event].count += count;
 	record_stat();
 }
 

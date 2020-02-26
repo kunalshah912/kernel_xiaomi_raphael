@@ -654,10 +654,12 @@ static inline void ufshcd_remove_non_printable(char *val)
 
 #ifdef CONFIG_TRACEPOINTS
 static inline void ufshcd_add_command_trace(struct ufs_hba *hba,
-			struct ufshcd_cmd_log_entry *entry)
+			struct ufshcd_cmd_log_entry *entry, bool intr)
 {
 	if (trace_ufshcd_command_enabled()) {
-		u32 intr = ufshcd_readl(hba, REG_INTERRUPT_STATUS);
+		u32 intr = 0;
+		if (intr)
+			intr = ufshcd_readl(hba, REG_INTERRUPT_STATUS);
 
 		trace_ufshcd_command(dev_name(hba->dev), entry->str, entry->tag,
 				     entry->doorbell, entry->transfer_len, intr,
@@ -666,7 +668,7 @@ static inline void ufshcd_add_command_trace(struct ufs_hba *hba,
 }
 #else
 static inline void ufshcd_add_command_trace(struct ufs_hba *hba,
-			struct ufshcd_cmd_log_entry *entry)
+			struct ufshcd_cmd_log_entry *entry, bool intr)
 {
 }
 #endif
@@ -711,7 +713,7 @@ static void __ufshcd_cmd_log(struct ufs_hba *hba, char *str, char *cmd_type,
 	hba->cmd_log.pos =
 			(hba->cmd_log.pos + 1) % UFSHCD_MAX_CMD_LOGGING;
 
-	ufshcd_add_command_trace(hba, entry);
+	ufshcd_add_command_trace(hba, entry, strcmp(cmd_type, "clk-gating"));
 }
 
 static void ufshcd_cmd_log(struct ufs_hba *hba, char *str, char *cmd_type,
@@ -2893,19 +2895,15 @@ static ssize_t ufshcd_hibern8_on_idle_enable_show(struct device *dev,
 			hba->hibern8_on_idle.is_enabled);
 }
 
-static ssize_t ufshcd_hibern8_on_idle_enable_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+
+static void ufshcd_hibern8_on_idle_switch_work(struct work_struct *work)
 {
-	struct ufs_hba *hba = dev_get_drvdata(dev);
+	struct ufs_hba *hba;
 	unsigned long flags;
 	u32 value;
 
-	if (kstrtou32(buf, 0, &value))
-		return -EINVAL;
-
-	value = !!value;
-	if (value == hba->hibern8_on_idle.is_enabled)
-		goto out;
+	hba = container_of(work, struct ufs_hba, hibern8_on_idle_enable_work);
+	value = !hba->hibern8_on_idle.is_enabled;
 
 	/* Update auto hibern8 timer value if supported */
 	if (ufshcd_is_auto_hibern8_supported(hba)) {
@@ -2929,6 +2927,28 @@ static ssize_t ufshcd_hibern8_on_idle_enable_store(struct device *dev,
 
 	hba->hibern8_on_idle.is_enabled = value;
 out:
+	return;
+}
+
+static ssize_t ufshcd_hibern8_on_idle_enable_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct ufs_hba *hba = dev_get_drvdata(dev);
+	u32 value;
+
+	if (kstrtou32(buf, 0, &value))
+		return -EINVAL;
+
+	mutex_lock(&hba->hibern8_on_idle.enable_mutex);
+	/*
+	 * make sure that former operation has been done before we exectue
+	 * next action. This could gareatee the order and synconization.
+	 */
+	flush_work(&hba->hibern8_on_idle_enable_work);
+	if (hba->hibern8_on_idle.is_enabled != !!value)
+		schedule_work(&hba->hibern8_on_idle_enable_work);
+	mutex_unlock(&hba->hibern8_on_idle.enable_mutex);
+
 	return count;
 }
 
@@ -6716,6 +6736,7 @@ static int ufshcd_disable_auto_bkops(struct ufs_hba *hba)
 
 	hba->auto_bkops_enabled = false;
 	trace_ufshcd_auto_bkops_state(dev_name(hba->dev), 0);
+	hba->is_urgent_bkops_lvl_checked = false;
 out:
 	return err;
 }
@@ -6740,6 +6761,7 @@ static void ufshcd_force_reset_auto_bkops(struct ufs_hba *hba)
 		hba->ee_ctrl_mask &= ~MASK_EE_URGENT_BKOPS;
 		ufshcd_disable_auto_bkops(hba);
 	}
+	hba->is_urgent_bkops_lvl_checked = false;
 }
 
 static inline int ufshcd_get_bkops_status(struct ufs_hba *hba, u32 *status)
@@ -6786,6 +6808,7 @@ static int ufshcd_bkops_ctrl(struct ufs_hba *hba,
 		err = ufshcd_enable_auto_bkops(hba);
 	else
 		err = ufshcd_disable_auto_bkops(hba);
+	hba->urgent_bkops_lvl = curr_status;
 out:
 	return err;
 }
@@ -8147,19 +8170,19 @@ static u32 ufshcd_find_max_sup_active_icc_level(struct ufs_hba *hba,
 		goto out;
 	}
 
-	if (hba->vreg_info.vcc && hba->vreg_info.vcc->max_uA)
+	if (hba->vreg_info.vcc)
 		icc_level = ufshcd_get_max_icc_level(
 				hba->vreg_info.vcc->max_uA,
 				POWER_DESC_MAX_ACTV_ICC_LVLS - 1,
 				&desc_buf[PWR_DESC_ACTIVE_LVLS_VCC_0]);
 
-	if (hba->vreg_info.vccq && hba->vreg_info.vccq->max_uA)
+	if (hba->vreg_info.vccq)
 		icc_level = ufshcd_get_max_icc_level(
 				hba->vreg_info.vccq->max_uA,
 				icc_level,
 				&desc_buf[PWR_DESC_ACTIVE_LVLS_VCCQ_0]);
 
-	if (hba->vreg_info.vccq2 && hba->vreg_info.vccq2->max_uA)
+	if (hba->vreg_info.vccq2)
 		icc_level = ufshcd_get_max_icc_level(
 				hba->vreg_info.vccq2->max_uA,
 				icc_level,
@@ -8912,7 +8935,8 @@ reinit:
 			hba->dev_info.f_power_on_wp_en = flag;
 
 		/* Add required well known logical units to scsi mid layer */
-		if (ufshcd_scsi_add_wlus(hba))
+		ret = ufshcd_scsi_add_wlus(hba);
+		if (ret)
 			goto out;
 
 		/* lower VCC voltage level */
@@ -9422,15 +9446,6 @@ static int ufshcd_config_vreg_load(struct device *dev, struct ufs_vreg *vreg,
 	int ret;
 
 	if (!vreg)
-		return 0;
-
-	/*
-	 * "set_load" operation shall be required on those regulators
-	 * which specifically configured current limitation. Otherwise
-	 * zero max_uA may cause unexpected behavior when regulator is
-	 * enabled or set as high power mode.
-	 */
-	if (!vreg->max_uA)
 		return 0;
 
 	ret = regulator_set_load(vreg->reg, ua);
@@ -11072,12 +11087,15 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 	INIT_WORK(&hba->eeh_work, ufshcd_exception_event_handler);
 	INIT_WORK(&hba->card_detect_work, ufshcd_card_detect_handler);
 	INIT_WORK(&hba->rls_work, ufshcd_rls_handler);
+	INIT_WORK(&hba->hibern8_on_idle_enable_work,
+			ufshcd_hibern8_on_idle_switch_work);
 
 	/* Initialize UIC command mutex */
 	mutex_init(&hba->uic_cmd_mutex);
 
 	/* Initialize mutex for device management commands */
 	mutex_init(&hba->dev_cmd.lock);
+	mutex_init(&hba->hibern8_on_idle.enable_mutex);
 
 	init_rwsem(&hba->lock);
 

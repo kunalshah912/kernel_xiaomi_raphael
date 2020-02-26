@@ -11,6 +11,10 @@
  * GNU General Public License for more details.
  */
 
+#if defined(CONFIG_SERIAL_MSM_GENI_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
+#define SUPPORT_SYSRQ
+#endif
+
 #include <linux/bitmap.h>
 #include <linux/bitops.h>
 #include <linux/debugfs.h>
@@ -176,6 +180,7 @@ struct msm_geni_serial_port {
 	u32 cur_tx_remaining;
 	bool startup_in_progress;
 	struct mutex ioctl_mutex;
+	bool brk;
 };
 
 static const struct uart_ops msm_geni_serial_pops;
@@ -631,7 +636,7 @@ static int msm_geni_serial_get_char(struct uart_port *uport)
 
 	if (!(msm_geni_serial_poll_bit(uport, SE_GENI_M_IRQ_STATUS,
 			M_SEC_IRQ_EN, true)))
-		return -ENXIO;
+		return NO_POLL_CHAR;
 
 	m_irq_status = geni_read_reg_nolog(uport->membase,
 						SE_GENI_M_IRQ_STATUS);
@@ -644,7 +649,7 @@ static int msm_geni_serial_get_char(struct uart_port *uport)
 
 	if (!(msm_geni_serial_poll_bit(uport, SE_GENI_RX_FIFO_STATUS,
 			RX_FIFO_WC_MSK, true)))
-		return -ENXIO;
+		return NO_POLL_CHAR;
 
 	/*
 	 * Read the Rx FIFO only after clearing the interrupt registers and
@@ -755,6 +760,11 @@ static void msm_geni_serial_console_write(struct console *co, const char *s,
 		return;
 
 	uport = &port->uport;
+#ifdef SUPPORT_SYSRQ
+	if (uport->sysrq) {
+		locked = spin_trylock_irqsave(&uport->lock, flags);
+	} else
+#endif
 	if (oops_in_progress)
 		locked = spin_trylock_irqsave(&uport->lock, flags);
 	else
@@ -791,10 +801,10 @@ static void msm_geni_serial_console_write(struct console *co, const char *s,
 		}
 	}
 
-	__msm_geni_serial_console_write(uport, s, count);
-
 	if (port->cur_tx_remaining)
 		msm_geni_serial_setup_tx(uport, port->cur_tx_remaining);
+
+	__msm_geni_serial_console_write(uport, s, count);
 
 	if (locked)
 		spin_unlock_irqrestore(&uport->lock, flags);
@@ -830,13 +840,24 @@ static int handle_rx_console(struct uart_port *uport,
 			int sysrq;
 
 			uport->icount.rx++;
+			if (msm_port->brk && rx_char[c] == 0) {
+				flag = TTY_BREAK;
+				msm_port->brk = false;
+				if (uart_handle_break(uport))
+					continue;
+			}
+
 			sysrq = uart_handle_sysrq_char(uport, rx_char[c]);
 			if (!sysrq)
 				tty_insert_flip_char(tport, rx_char[c], flag);
 		}
 	}
-	if (!drop_rx)
+	if (!drop_rx) {
+		spin_unlock(&uport->lock);
 		tty_flip_buffer_push(tport);
+		spin_lock(&uport->lock);
+	}
+
 	return 0;
 }
 #else
@@ -1480,6 +1501,9 @@ static irqreturn_t msm_geni_serial_isr(int isr, void *dev)
 	unsigned int geni_status;
 	struct tty_port *tport = &uport->state->port;
 	bool drop_rx = false;
+        bool brk;
+
+        struct msm_geni_serial_port *msm_port = GET_DEV_PORT(uport);
 
 	spin_lock_irqsave(&uport->lock, flags);
 	if (uart_console(uport) && uport->suspended) {
@@ -1528,6 +1552,7 @@ static irqreturn_t msm_geni_serial_isr(int isr, void *dev)
 		} else if ((s_irq_status & S_GP_IRQ_2_EN) ||
 			(s_irq_status & S_GP_IRQ_3_EN)) {
 			uport->icount.brk++;
+			msm_port->brk = true;
 		}
 
 		if ((s_irq_status & S_RX_FIFO_WATERMARK_EN) ||

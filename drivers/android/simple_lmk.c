@@ -10,6 +10,7 @@
 #include <linux/moduleparam.h>
 #include <linux/oom.h>
 #include <linux/sort.h>
+#include <linux/vmpressure.h>
 #include <uapi/linux/sched/types.h>
 
 /* The minimum number of pages to free per reclaim */
@@ -75,6 +76,17 @@ static bool vtsk_is_duplicate(int vlen, struct task_struct *vtsk)
 	return false;
 }
 
+static unsigned long get_total_mm_pages(struct mm_struct *mm)
+{
+	unsigned long pages = 0;
+	int i;
+
+	for (i = 0; i < NR_MM_COUNTERS; i++)
+		pages += get_mm_counter(mm, i);
+
+	return pages;
+}
+
 static unsigned long find_victims(int *vindex, short target_adj)
 {
 	unsigned long pages_found = 0;
@@ -108,7 +120,7 @@ static unsigned long find_victims(int *vindex, short target_adj)
 		/* Store this potential victim away for later */
 		victims[*vindex].tsk = vtsk;
 		victims[*vindex].mm = vtsk->mm;
-		victims[*vindex].size = get_mm_rss(vtsk->mm);
+		victims[*vindex].size = get_total_mm_pages(vtsk->mm);
 
 		/* Keep track of the number of pages that have been found */
 		pages_found += victims[*vindex].size;
@@ -145,11 +157,10 @@ static int process_victims(int vlen, unsigned long pages_needed)
 		/* The victim's mm lock is taken in find_victims; release it */
 		if (pages_found >= pages_needed) {
 			task_unlock(vtsk);
-			continue;
+		} else {
+			pages_found += victim->size;
+			nr_to_kill++;
 		}
-
-		pages_found += victim->size;
-		nr_to_kill++;
 	}
 
 	return nr_to_kill;
@@ -249,19 +260,12 @@ static int simple_lmk_reclaim_thread(void *data)
 	sched_setscheduler_nocheck(current, SCHED_FIFO, &sched_max_rt_prio);
 
 	while (1) {
-		wait_event(oom_waitq, atomic_read_acquire(&needs_reclaim));
+		wait_event(oom_waitq, atomic_read(&needs_reclaim));
 		scan_and_kill(MIN_FREE_PAGES);
 		atomic_set_release(&needs_reclaim, 0);
 	}
 
 	return 0;
-}
-
-void simple_lmk_decide_reclaim(int kswapd_priority)
-{
-	if (kswapd_priority == CONFIG_ANDROID_SIMPLE_LMK_AGGRESSION &&
-	    !atomic_cmpxchg(&needs_reclaim, 0, 1))
-		wake_up(&oom_waitq);
 }
 
 void simple_lmk_mm_freed(struct mm_struct *mm)
@@ -270,14 +274,30 @@ void simple_lmk_mm_freed(struct mm_struct *mm)
 
 	read_lock(&mm_free_lock);
 	for (i = 0; i < victims_to_kill; i++) {
-		if (cmpxchg(&victims[i].mm, mm, NULL) == mm) {
-			if (atomic_inc_return(&nr_killed) == victims_to_kill)
-				complete(&reclaim_done);
-			break;
-		}
+		if (victims[i].mm != mm)
+			continue;
+
+		victims[i].mm = NULL;
+		if (atomic_inc_return_relaxed(&nr_killed) == victims_to_kill)
+			complete(&reclaim_done);
+		break;
 	}
 	read_unlock(&mm_free_lock);
 }
+
+static int simple_lmk_vmpressure_cb(struct notifier_block *nb,
+				    unsigned long pressure, void *data)
+{
+	if (pressure == 100 && !atomic_cmpxchg_acquire(&needs_reclaim, 0, 1))
+		wake_up(&oom_waitq);
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block vmpressure_notif = {
+	.notifier_call = simple_lmk_vmpressure_cb,
+	.priority = INT_MAX
+};
 
 /* Initialize Simple LMK when lmkd in Android writes to the minfree parameter */
 static int simple_lmk_init_set(const char *val, const struct kernel_param *kp)
@@ -289,7 +309,9 @@ static int simple_lmk_init_set(const char *val, const struct kernel_param *kp)
 		thread = kthread_run(simple_lmk_reclaim_thread, NULL,
 				     "simple_lmkd");
 		BUG_ON(IS_ERR(thread));
+		BUG_ON(vmpressure_notifier_register(&vmpressure_notif));
 	}
+
 	return 0;
 }
 
