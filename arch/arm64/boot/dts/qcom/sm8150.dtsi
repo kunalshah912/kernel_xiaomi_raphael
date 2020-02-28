@@ -1328,6 +1328,7 @@
 		};
 
 		dload_type@1c {
+			status = "disabled";
 			compatible = "qcom,msm-imem-dload-type";
 			reg = <0x1c 0x4>;
 		};
