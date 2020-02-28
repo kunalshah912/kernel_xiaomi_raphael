@@ -3174,6 +3174,7 @@
 	};
 
 	qcom_tzlog: tz-log@146bf720 {
+		status = "disabled";
 		compatible = "qcom,tz-log";
 		reg = <0x146bf720 0x3000>;
 		qcom,hyplog-enabled;
