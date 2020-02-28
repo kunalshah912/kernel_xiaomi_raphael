@@ -1334,6 +1334,7 @@
 		};
 
 		boot_stats@6b0 {
+                        status = "disabled";
 			compatible = "qcom,msm-imem-boot_stats";
 			reg = <0x6b0 32>;
 		};
