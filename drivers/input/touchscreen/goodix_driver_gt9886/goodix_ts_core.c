@@ -2144,6 +2144,7 @@ static int gtp_i2c_test(void)
 			&read_val, 1);
 	if (!ret) {
 		ts_info("i2c test SUCCESS");
+		return GTP_RESULT_PASS;
 	} else {
 		ts_err("i2c test FAILED");
 		return GTP_RESULT_FAIL;
