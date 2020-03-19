@@ -501,6 +501,7 @@ struct goodix_ts_core {
 struct goodix_mode_switch {
 	struct goodix_ts_core *info;
 	unsigned char mode;
+	struct work_struct switch_mode_work;
 };
 
 /* external module structures */
