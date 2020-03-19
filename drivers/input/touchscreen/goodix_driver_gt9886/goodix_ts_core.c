@@ -2669,7 +2669,7 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	core_data->dbclick_count = 0;
 #endif
 
-	/*core_data->fod_status = -1;*/
+	core_data->fod_status = -1;
 	/*core_data->fod_enabled = false;*/
 	//wake_lock_init(&core_data->tp_wakelock, WAKE_LOCK_SUSPEND, "touch_locker");
 #ifdef CONFIG_TOUCHSCREEN_GOODIX_DEBUG_FS
