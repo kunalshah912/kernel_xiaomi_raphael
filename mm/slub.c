@@ -259,7 +259,7 @@ static inline void *freelist_ptr(const struct kmem_cache *s, void *ptr,
 	 * freepointer to be restored incorrectly.
 	 */
 	return (void *)((unsigned long)ptr ^ s->random ^
-			swab((unsigned long)kasan_reset_tag((void *)ptr_addr)));
+			(unsigned long)kasan_reset_tag((void *)ptr_addr));
 #else
 	return ptr;
 #endif
@@ -4014,6 +4014,7 @@ void kfree(const void *x)
 	if (unlikely(!PageSlab(page))) {
 		BUG_ON(!PageCompound(page));
 		kfree_hook(object);
+		kasan_alloc_pages(page, compound_order(page));
 		__free_pages(page, compound_order(page));
 		return;
 	}

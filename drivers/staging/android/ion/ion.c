@@ -1378,7 +1378,7 @@ debugfs_done:
 	init_rwsem(&idev->lock);
 	plist_head_init(&idev->heaps);
 	internal_dev = idev;
-	return 0;
+	return idev;
 
 err_sysfs:
 	misc_deregister(&idev->dev);

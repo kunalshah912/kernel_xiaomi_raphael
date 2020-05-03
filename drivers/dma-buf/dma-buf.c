@@ -34,13 +34,13 @@
 #include <linux/poll.h>
 #include <linux/reservation.h>
 #include <linux/mm.h>
+#include <linux/mount.h>
 #include <linux/kernel.h>
 #include <linux/atomic.h>
 #include <linux/sched/signal.h>
 #include <linux/fdtable.h>
 #include <linux/list_sort.h>
 #include <linux/hashtable.h>
-#include <linux/mount.h>
 
 #include <uapi/linux/dma-buf.h>
 #include <uapi/linux/magic.h>
@@ -380,7 +380,6 @@ static int dma_buf_begin_cpu_access_umapped(struct dma_buf *dmabuf,
 
 static int dma_buf_end_cpu_access_umapped(struct dma_buf *dmabuf,
 					  enum dma_data_direction direction);
-
 
 static long dma_buf_ioctl(struct file *file,
 			  unsigned int cmd, unsigned long arg)

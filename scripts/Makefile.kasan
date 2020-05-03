@@ -29,26 +29,6 @@ CFLAGS_KASAN_SHADOW := $(call cc-option, -fsanitize=kernel-address \
 ifeq ($(strip $(CFLAGS_KASAN_SHADOW)),)
 	CFLAGS_KASAN := $(CFLAGS_KASAN_MINIMAL)
 else
-<<<<<<< HEAD
-   # -fasan-shadow-offset fails without -fsanitize
-   CFLAGS_KASAN_SHADOW := $(call cc-option, -fsanitize=kernel-address \
-			-fasan-shadow-offset=$(KASAN_SHADOW_OFFSET), \
-			$(call cc-option, -fsanitize=kernel-address \
-			-mllvm -asan-mapping-offset=$(KASAN_SHADOW_OFFSET)))
-
-   ifeq ($(strip $(CFLAGS_KASAN_SHADOW)),)
-      CFLAGS_KASAN := $(CFLAGS_KASAN_MINIMAL)
-   else
-      # Now add all the compiler specific options that are valid standalone
-      CFLAGS_KASAN := $(CFLAGS_KASAN_SHADOW) \
-	$(call cc-param,asan-globals=1) \
-	$(call cc-param,asan-instrumentation-with-call-threshold=$(call_threshold)) \
-	$(call cc-param,asan-stack=1) \
-	$(call cc-param,asan-use-after-scope=1) \
-	$(call cc-param,asan-instrument-allocas=1)
-   endif
-
-=======
 	# Now add all the compiler specific options that are valid standalone
 	CFLAGS_KASAN := $(CFLAGS_KASAN_SHADOW) \
 	 $(call cc-param,asan-globals=1) \
