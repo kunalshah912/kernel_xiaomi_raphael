@@ -246,6 +246,9 @@
 				qcom,mdss-dsi-dispparam-crc-off-command-state = "dsi_lp_mode";
 
 				qcom,mdss-dsi-h-sync-pulse = <0>;
+
+			        qcom,partial-update-enabled = "single_roi";
+			        qcom,panel-roi-alignment = <1080 20 1080 20 1080 20>;
 			};
 		};
 	};
