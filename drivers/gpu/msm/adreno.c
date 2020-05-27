@@ -1973,14 +1973,18 @@ static int _adreno_start(struct adreno_device *adreno_dev)
 	/* Send OOB request to turn on the GX */
 	if (GMU_DEV_OP_VALID(gmu_dev_ops, oob_set)) {
 		status = gmu_dev_ops->oob_set(adreno_dev, oob_gpu);
-		if (status)
+		if (status) {
+			gmu_core_snapshot(device);
 			goto error_mmu_off;
+		}
 	}
 
 	if (GMU_DEV_OP_VALID(gmu_dev_ops, hfi_start_msg)) {
 		status = gmu_dev_ops->hfi_start_msg(adreno_dev);
-		if (status)
+		if (status) {
+			gmu_core_snapshot(device);
 			goto error_oob_clear;
+		}
 	}
 
 	_set_secvid(device);
@@ -2260,29 +2264,17 @@ static int adreno_stop(struct kgsl_device *device)
 		error = gmu_dev_ops->oob_set(adreno_dev, oob_gpu);
 		if (error && GMU_DEV_OP_VALID(gmu_dev_ops, oob_clear)) {
 			gmu_dev_ops->oob_clear(adreno_dev, oob_gpu);
-			if (gmu_core_regulator_isenabled(device)) {
-				/* GPU is on. Try recovery */
-				set_bit(GMU_FAULT, &device->gmu_core.flags);
 				gmu_core_snapshot(device);
 				error = -EINVAL;
-			} else {
-				return error;
-			}
+				goto no_gx_power;
 		}
 	}
-
-	adreno_dispatcher_stop(adreno_dev);
-
-	adreno_ringbuffer_stop(adreno_dev);
 
 	kgsl_pwrscale_update_stats(device);
 
 	adreno_irqctrl(adreno_dev, 0);
 
 	adreno_ocmem_free(adreno_dev);
-
-	adreno_llc_deactivate_slice(adreno_dev->gpu_llc_slice);
-	adreno_llc_deactivate_slice(adreno_dev->gpuhtw_llc_slice);
 
 	/* Save physical performance counter values before GPU power down*/
 	adreno_perfcounter_save(adreno_dev);
@@ -2302,7 +2294,6 @@ static int adreno_stop(struct kgsl_device *device)
 	if (!error && GMU_DEV_OP_VALID(gmu_dev_ops, wait_for_lowest_idle) &&
 			gmu_dev_ops->wait_for_lowest_idle(adreno_dev)) {
 
-		set_bit(GMU_FAULT, &device->gmu_core.flags);
 		gmu_core_snapshot(device);
 		/*
 		 * Assume GMU hang after 10ms without responding.
@@ -2314,6 +2305,17 @@ static int adreno_stop(struct kgsl_device *device)
 	}
 
 	adreno_clear_pending_transactions(device);
+
+no_gx_power:
+	adreno_dispatcher_stop(adreno_dev);
+
+	adreno_ringbuffer_stop(adreno_dev);
+
+	if (!IS_ERR_OR_NULL(adreno_dev->gpu_llc_slice))
+		llcc_slice_deactivate(adreno_dev->gpu_llc_slice);
+
+	if (!IS_ERR_OR_NULL(adreno_dev->gpuhtw_llc_slice))
+		llcc_slice_deactivate(adreno_dev->gpuhtw_llc_slice);
 
 	/*
 	 * The halt is not cleared in the above function if we have GBIF.
@@ -3211,7 +3213,15 @@ void adreno_spin_idle_debug(struct adreno_device *adreno_dev,
 
 	dev_err(device->dev, " hwfault=%8.8X\n", hwfault);
 
-	kgsl_device_snapshot(device, NULL, adreno_gmu_gpu_fault(adreno_dev));
+	/*
+	 * If CP is stuck, gmu may not perform as expected. So force a gmu
+	 * snapshot which captures entire state as well as sets the gmu fault
+	 * because things need to be reset anyway.
+	 */
+	if (gmu_core_isenabled(device))
+		gmu_core_snapshot(device);
+	else
+		kgsl_device_snapshot(device, NULL, false);
 }
 
 /**
@@ -4255,7 +4265,7 @@ static int __kgsl_3d_init(void *arg)
 static int __init kgsl_3d_init(void)
 {
 	struct task_struct *kgsl_3d_init_task =
-		kthread_run(__kgsl_3d_init, NULL, "kgsl_3d_init");
+		kthread_run_perf_critical(__kgsl_3d_init, NULL, "kgsl_3d_init");
 	if (IS_ERR(kgsl_3d_init_task))
 		return PTR_ERR(kgsl_3d_init_task);
 	else
