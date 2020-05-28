@@ -229,8 +229,15 @@ struct dsi_panel {
 	struct delayed_work cmds_work;
 	u32 last_bl_lvl;
 	s32 backlight_delta;
+	u32 backlight_pulse_threshold;
+	bool dc_enable;
+	bool backlight_pulse_flag; /* true = 4 pulse and false = 1 pulse */
 
+	bool hbm_enabled;
 	bool fod_hbm_enabled; /* prevent set DISPPARAM_DOZE_BRIGHTNESS_HBM/LBM in FOD HBM */
+	bool fod_dimlayer_enabled;
+	bool fod_dimlayer_hbm_enabled;
+	bool fod_ui_ready;
 	u32 doze_backlight_threshold;
 	u32 fod_off_dimming_delay;
 	ktime_t fod_hbm_off_time;
