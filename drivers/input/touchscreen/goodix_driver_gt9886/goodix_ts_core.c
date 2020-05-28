@@ -758,6 +758,13 @@ static int goodix_ts_input_report(struct input_dev *dev,
 	unsigned int touch_num = touch_data->touch_num;
 	int i, id;
 
+	if (core_data->fod_status){
+		if ((core_data->event_status & 0x20) == 0x20){
+			ts_info("%s:the data sended was error,return\n",__func__);
+			return 0;
+		}
+	}
+
 	mutex_lock(&ts_dev->report_mutex);
 	id = coords->id;
 	for (i = 0; i < ts_bdata->panel_max_id * 2; i++) {
@@ -802,12 +809,12 @@ static int goodix_ts_input_report(struct input_dev *dev,
 
 	/*report finger*/
 	/*ts_info("get_event_now :0x%02x, pre_event : %d", get_event_now, pre_event);*/
-	if ((core_data->event_status & 0x08) == 0x08 && core_data->fod_status) {
+	if ((core_data->event_status & 0x88) == 0x88 && core_data->fod_status) {
 		input_report_key(core_data->input_dev, BTN_INFO, 1);
 		input_report_key(core_data->input_dev, KEY_INFO, 1);
 		core_data->fod_pressed = true;
 		ts_info("BTN_INFO press");
-	} else if (core_data->fod_pressed && (core_data->event_status & 0x08) != 0x08) {
+	} else if (core_data->fod_pressed && (core_data->event_status & 0x88) != 0x88) {
 		if (unlikely(!core_data->fod_test)) {
 			input_report_key(core_data->input_dev, BTN_INFO, 0);
 			input_report_key(core_data->input_dev, KEY_INFO, 0);
