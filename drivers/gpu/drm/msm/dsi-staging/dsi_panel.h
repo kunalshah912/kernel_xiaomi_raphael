@@ -232,6 +232,11 @@ struct dsi_panel {
 	u32 backlight_pulse_threshold;
 	bool dc_enable;
 	bool backlight_pulse_flag; /* true = 4 pulse and false = 1 pulse */
+	u32 hist_bl_offset;
+	u32 dc_threshold;
+	bool dim_layer_replace_dc;
+	bool fod_dimlayer_bl_block;
+	bool fodflag;
 
 	bool hbm_enabled;
 	bool fod_hbm_enabled; /* prevent set DISPPARAM_DOZE_BRIGHTNESS_HBM/LBM in FOD HBM */

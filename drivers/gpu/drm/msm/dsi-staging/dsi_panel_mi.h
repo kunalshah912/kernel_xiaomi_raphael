@@ -18,6 +18,7 @@
 
 #define DEFAULT_FOD_OFF_DIMMING_DELAY	170
 #define BACKLIGHT_PLUSE_THRESHOLD	0
+#define HIST_BL_OFFSET_LIMIT 48
 
 enum bkl_dimming_state {
 	STATE_NONE,

@@ -3099,18 +3099,17 @@ void sde_crtc_complete_commit(struct drm_crtc *crtc,
 	sde_core_perf_crtc_update(crtc, 0, false);
 }
 
-void set_fod_dimlayer_status(struct drm_connector *connector, bool enabled)
+bool set_fod_dimlayer_status(struct drm_connector *connector, bool enable)
 {
 	struct dsi_display *dsi_display = get_primary_display();
 
 	if (!connector || !dsi_display || !dsi_display->panel) {
 		SDE_ERROR("invalid param\n");
-		return;
+		return false;
 	}
 
-	dsi_display->panel->fod_dimlayer_enabled = enabled;
-
-	return;
+	dsi_display->panel->fod_dimlayer_enabled = enable;
+	return true;
 }
 EXPORT_SYMBOL(set_fod_dimlayer_status);
 
@@ -3126,6 +3125,19 @@ bool get_fod_dimlayer_status(struct drm_connector *connector)
 	return dsi_display->panel->fod_dimlayer_enabled;
 }
 EXPORT_SYMBOL(get_fod_dimlayer_status);
+
+bool get_fod_dimlayer_hbm_enabled_status(struct drm_connector *connector)
+{
+	struct dsi_display *dsi_display = get_primary_display();
+
+	if (!connector || !dsi_display || !dsi_display->panel) {
+		SDE_ERROR("invalid param\n");
+		return false;
+	}
+
+	return dsi_display->panel->fod_dimlayer_hbm_enabled;
+}
+EXPORT_SYMBOL(get_fod_dimlayer_hbm_enabled_status);
 
 bool get_fod_ui_status(struct drm_connector *connector)
 {
@@ -3340,6 +3352,12 @@ static int sde_crtc_config_fingerprint_dim_layer(struct drm_crtc_state *crtc_sta
 	if (!alpha) {
 		cstate->fingerprint_dim_layer = NULL;
 		return 0;
+	}
+
+	if ((stage + SDE_STAGE_0) >= kms->catalog->mixer[0].sblk->maxblendstages) {
+		pr_debug("stage too large! stage + SDE_STAGE_0:%d maxblendstages:%d\n",
+			stage + SDE_STAGE_0, kms->catalog->mixer[0].sblk->maxblendstages);
+		return -EINVAL;
 	}
 
 	if ((stage + SDE_STAGE_0) >= kms->catalog->mixer[0].sblk->maxblendstages) {
